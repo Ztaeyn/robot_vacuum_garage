@@ -1,0 +1,228 @@
+esphome:
+  name: vacuumgarage
+  friendly_name: vacuumgarage
+
+esp8266:
+  board: nodemcuv2
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: ""
+  services:
+    - service: control_stepper
+      variables:
+        target: int
+      then:
+        - stepper.set_target:
+            id: my_stepper
+            target: !lambda 'return target;'
+        - sensor.template.publish:
+            id: position
+            state: !lambda 'return target;'
+
+ota:
+  password: "341c765c88848721ac11664a7993c0f8"
+
+wifi:
+  ssid: xx
+  password: xx
+
+  manual_ip:
+    static_ip: 192.168.10.7
+    gateway: 192.168.10.1
+    subnet: 255.255.255.0
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Vacuumgarage Fallback Hotspot"
+    password: "sHb6gADchew4"
+
+captive_portal:
+
+globals:
+  - id: stepper_steps
+    type: int
+    initial_value: '900'
+  - id: stepper_position
+    type: float
+    initial_value: '0'
+  - id: stepper_state
+    type: int
+    initial_value: '0'
+
+
+binary_sensor:
+  - platform: gpio
+    pin: D8
+    name: "Button"
+    filters:
+    on_press:
+      then:
+        - lambda: |
+            if (id(stepper_state) == 0) {
+              //shade is stopped
+              if (((id(stepper_position) < (id(stepper_steps) / 2)) || (id(stepper_position) == id(stepper_steps))) && (id(stepper_position) > 0)) {
+                id(stepper_motor).make_call().set_command_open().perform();
+              } else {
+                id(stepper_motor).make_call().set_command_close().perform();
+              }
+            } else {
+              //shade is moving
+              id(stepper_motor).make_call().set_command_stop().perform();
+            }
+
+
+number:
+  - platform: template
+    name: Stepper Control
+    min_value: -900
+    max_value: 900
+    step: 1
+    set_action:
+      then:
+        - stepper.set_target:
+            id: my_stepper
+            target: !lambda 'return x;'
+
+cover:
+  - platform: template
+    name: "Vacuum Garage Door"
+    id: stepper_motor
+    open_action:
+      - globals.set:
+          id: stepper_state
+          value: '1'
+      - stepper.set_target:
+          id: my_stepper
+          target: 0
+      - sensor.template.publish:
+          id: position
+          state: !lambda return id(my_stepper).target_position;  
+      - delay: !lambda "return (id(my_stepper).current_position / id(stepper_steps)) * 30000;"
+      - globals.set:
+          id: stepper_position
+          value: !lambda "return id(my_stepper).target_position;"
+      - globals.set:
+          id: stepper_state
+          value: '0'
+
+    close_action:
+      - globals.set:
+          id: stepper_state
+          value: '1'
+      - stepper.set_target:
+          id: my_stepper
+          target: !lambda "return id(stepper_steps);"
+      - sensor.template.publish:
+            id: position
+            state: !lambda return id(my_stepper).target_position;
+      - delay: !lambda "return (1 - (id(my_stepper).current_position / id(stepper_steps))) * 30000;"
+      - globals.set:
+          id: stepper_position
+          value: !lambda "return id(my_stepper).target_position;"
+      - globals.set:
+          id: stepper_state
+          value: '0'
+
+    stop_action:
+      - stepper.set_target:
+          id: my_stepper
+          target: !lambda "return id(my_stepper).current_position;" 
+      - sensor.template.publish:
+          id: position
+          state: !lambda return id(my_stepper).current_position;
+      - globals.set:
+          id: stepper_position
+          value: !lambda "return id(my_stepper).current_position;"
+      - globals.set:
+          id: stepper_state
+          value: '0'
+      - cover.template.publish:
+          id: stepper_motor
+          position: !lambda "return 1 - (id(stepper_position) / id(stepper_steps));"
+
+    position_action:
+      - stepper.set_target:
+          id: my_stepper
+          target: !lambda "return id(stepper_steps) * (1 - pos);"
+    optimistic: true
+    assumed_state: true
+    has_position: true
+
+#cover:
+  # - platform: template
+    # name: "Vacuum Garage Door"
+    # id: stepper_motor
+    # device_class: garage
+    # open_action:
+      # - stepper.set_target:
+          # id: my_stepper
+          # target: 900
+      # - sensor.template.publish:
+          # id: position
+          # state: !lambda return id(my_stepper).target_position; 
+    # close_action:
+      # - stepper.set_target:
+          # id: my_stepper
+          # target: 0
+      # - sensor.template.publish:
+            # id: position
+            # state: !lambda return id(my_stepper).target_position;
+    # stop_action:
+      # - stepper.set_target:
+          # id: my_stepper
+          # target: !lambda return id(my_stepper).current_position;      
+      # - sensor.template.publish:
+          # id: position
+          # state: !lambda return id(my_stepper).current_position;
+
+    # optimistic: true  
+    # assumed_state: true
+
+#Add HW Switch for selecting ONGRID or OFFGRID
+#ONGRID: Garage can be manually opened and closed from HA, and will auto-close and auto-open during vacuuming.
+#OFFGRID: Manual mode. Will stay open until vacuum is returned. (Should have LED notification)
+#Option: If no contact with HA, check that the system behaves as offgrid.
+
+#Add second switch to manually open and close.
+#switch:
+#  - platform: gpio
+#    pin: 25
+# #   id: ongrid
+#    name: "HA Controlled Stepper"
+#    icon: "mdi:gate"
+#    on_turn_on:
+#    - delay: 500ms
+#    - switch.turn_off: relay
+
+sensor:
+  - platform: template
+    name: "Door Position"
+    id: position 
+
+stepper:
+  - platform: a4988
+    id: my_stepper
+    step_pin: D2
+    dir_pin: 
+      number: D4
+      inverted: true
+    max_speed: 250 steps/s
+
+    # Optional:
+    acceleration: inf
+    deceleration: inf
+
+
+  
+
+
+
+  #Additional sensor for pressure sensor? Parked / Not Parked. Or not, is available from Dock. But can be used for potential status light.
+
+  #Light strip thoughts:
+    #Not HA: Multiple led sequence when opening and closing. 1 led blinking while vacuum not docked.
+    #HA: Above, plus status from HA: Red blinking if error. Other color blinking if need of emptying. Other color if currently active.
