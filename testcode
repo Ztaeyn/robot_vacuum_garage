@@ -1,0 +1,247 @@
+esphome:
+  name: vacuumgarage
+  friendly_name: vacuumgarage
+
+esp8266:
+  board: nodemcuv2
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "qc6VZPRv4DcXHvu6FGFmufkXBXbvKucGH0848LmzpFk="
+
+ota:
+  password: "341c765c88848721ac11664a7993c0f8"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 192.168.10.7
+    gateway: 192.168.10.1
+    subnet: 255.255.255.0
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Vacuumgarage Fallback Hotspot"
+    password: "sHb6gADchew4"
+
+captive_portal:
+
+globals:
+  - id: performing_last_movement
+    type: boolean
+    restore_value: no
+    initial_value: 'false'
+
+cover:
+  - platform: template
+    name: "Vacuum Garage Door"
+    id: garage_door
+    device_class: garage
+    assumed_state: true
+    lambda: !lambda |-
+      if (id(closed_endstop).state) //Door at closed endstop
+      {
+        if (id(garage_door).current_operation ==  esphome::cover::COVER_OPERATION_OPENING) //We should be opening
+        {
+          if (!id(performing_last_movement)) //Make sure we don't trigger this logic twice otherwise it will do unwanted things
+          {
+            delay(1000); //Wait for door to stop in case reed is triggered too early
+            id(my_stepper).report_position(0);
+            id(my_stepper).set_target(900);
+            id(performing_last_movement) = true; //Set flag to indicate we madeknow where the door is
+          }
+        }
+        else if (id(garage_door).current_operation ==  esphome::cover::COVER_OPERATION_CLOSING)
+        {
+          //We should be closing, so all is good
+          id(performing_last_movement) = false;
+          id(garage_door).current_operation =  esphome::cover::COVER_OPERATION_IDLE;
+          id(garage_door).position = COVER_CLOSED;
+          id(garage_door).publish_state();
+          return COVER_CLOSED;
+        }
+        else
+        {
+          //No operation in progress, just send state
+          id(performing_last_movement) = false;
+          if (!id(garage_door).position == esphome::cover::COVER_CLOSED)
+          {
+            id(garage_door).position = COVER_CLOSED;
+            id(garage_door).publish_state();
+            return COVER_CLOSED;
+          }
+        }
+      }
+      else if (id(open_endstop).state) //Door at open endstop
+      {
+        if (id(garage_door).current_operation ==  esphome::cover::COVER_OPERATION_CLOSING) //We should be closing
+        {
+          if (!id(performing_last_movement))  //Make sure we don't trigger this logic twice otherwise it will do unwanted things
+          {
+            delay(1000);  //Wait for door to stop in case reed is triggered too early
+            id(my_stepper).report_position(0);
+            id(my_stepper).set_target(-900);
+            id(performing_last_movement) = true; //Set flag to indicate we madeknow where the door is
+          }
+        }
+        else if (id(garage_door).current_operation ==  esphome::cover::COVER_OPERATION_OPENING)
+        {
+          //We should be opening, so all is good
+          id(performing_last_movement) = false;
+          id(garage_door).current_operation =  esphome::cover::COVER_OPERATION_IDLE;
+          id(garage_door).position = COVER_OPEN;
+          id(garage_door).publish_state();
+          return COVER_OPEN;
+        }
+        else //Door not at any endstop
+        {
+          //No operation in progress, just send state
+          id(performing_last_movement) = false;
+          if (id(garage_door).position != esphome::cover::COVER_OPEN)
+          {
+            id(garage_door).position = COVER_OPEN;
+            id(garage_door).publish_state();
+            return COVER_OPEN;
+          }
+        }
+      }
+      else
+      {
+        //The door is halfway open, so set it to OPEN
+        if (id(garage_door).position != esphome::cover::COVER_OPEN)
+          {
+            id(garage_door).position = COVER_OPEN;
+            id(garage_door).publish_state();
+            return COVER_OPEN;
+          }
+      }
+      return {};
+
+    open_action: 
+      - lambda: !lambda |-
+          id(garage_door).current_operation =  esphome::cover::COVER_OPERATION_OPENING;
+          if (!id(open_endstop).state) {
+            id(my_stepper).report_position(0);
+            id(my_stepper).set_target(900);
+            if (id(closed_endstop).state) {
+              id(performing_last_movement) = true; //Set flag to indicate we know where the door is
+            }
+          }
+    close_action:
+      - lambda: !lambda |-
+          id(garage_door).current_operation =  esphome::cover::COVER_OPERATION_CLOSING;
+          if (!id(closed_endstop).state) {
+            id(my_stepper).report_position(0);
+            id(my_stepper).set_target(-900);
+            if (id(open_endstop).state) {
+              id(performing_last_movement) = true; //Set flag to indicate we know where the door is
+            }
+          }
+    stop_action:
+      - lambda: !lambda |-
+          if (id(garage_door).current_operation ==  esphome::cover::COVER_OPERATION_CLOSING || id(garage_door).current_operation ==  esphome::cover::COVER_OPERATION_OPENING )
+          {
+            id(garage_door).current_operation =  esphome::cover::COVER_OPERATION_IDLE;
+            //Stop the door if it is moving
+            id(performing_last_movement) = false;
+            id(my_stepper).report_position(0);
+            id(my_stepper).set_target(0);
+          }
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: D7
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - invert:
+    name: "Garage Door Open"
+    id: open_endstop
+    on_press:
+        - stepper.report_position:
+            id: my_stepper
+            position: 0
+        - stepper.set_target:
+            id: my_stepper
+            target: 0
+
+  - platform: gpio
+    pin:
+      number: D6
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - invert:
+    name: "Garage Door Closed"
+    id: closed_endstop
+    on_press:
+        - stepper.report_position:
+            id: my_stepper
+            position: 0
+        - stepper.set_target:
+            id: my_stepper
+            target: 0
+
+  - platform: gpio  #Working. Connect to main ground.
+    pin:
+      number: D5
+      mode:
+        input: true
+        pullup: true
+    name: "Garage Door Vacuum"
+    id: garage_switch
+    device_class: door
+    on_press: #Close door
+      - lambda: |-
+          if (id(open_endstop).state )
+          {
+            auto call = id(garage_door).make_call();
+            // set attributes
+            call.set_command_close();
+            call.perform();
+          }
+    on_release: #Open Door
+      - lambda: |-
+          if (id(closed_endstop).state)
+          {
+            auto call = id(garage_door).make_call();
+            // set attributes
+            call.set_command_open();
+            call.perform();
+          }
+
+
+
+
+
+stepper:
+  - platform: a4988
+    id: my_stepper
+    step_pin: D2
+    dir_pin: 
+      number: D4
+      inverted: true
+    max_speed: 250 steps/s
+
+    # Optional:
+    acceleration: inf
+    deceleration: inf
+
+
+  
+
+
+
+  #Additional sensor for pressure sensor? Parked / Not Parked. Or not, is available from Dock. But can be used for potential status light.
+
+  #Light strip thoughts:
+    #Not HA: Multiple led sequence when opening and closing. 1 led blinking while vacuum not docked.
+    #HA: Above, plus status from HA: Red blinking if error. Other color blinking if need of emptying. Other color if currently active.
