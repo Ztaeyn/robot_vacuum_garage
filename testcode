@@ -199,23 +199,25 @@ binary_sensor:
     name: "Garage Door Vacuum"
     id: garage_switch
     device_class: door
-    on_press: #Close door
-      - lambda: |-
-          if (id(open_endstop).state )
-          {
-            auto call = id(garage_door).make_call();
-            // set attributes
-            call.set_command_close();
-            call.perform();
+    on_release: #Close door
+      - lambda: !lambda |-
+          id(garage_door).current_operation =  esphome::cover::COVER_OPERATION_CLOSING;
+          if (!id(closed_endstop).state) {
+            id(my_stepper).report_position(0);
+            id(my_stepper).set_target(-900);
+            if (id(open_endstop).state) {
+              id(performing_last_movement) = true; //Set flag to indicate we know where the door is
+            }
           }
-    on_release: #Open Door
-      - lambda: |-
-          if (id(closed_endstop).state)
-          {
-            auto call = id(garage_door).make_call();
-            // set attributes
-            call.set_command_open();
-            call.perform();
+    on_press: #Open Door
+      - lambda: !lambda |-
+          id(garage_door).current_operation =  esphome::cover::COVER_OPERATION_OPENING;
+          if (!id(open_endstop).state) {
+            id(my_stepper).report_position(0);
+            id(my_stepper).set_target(900);
+            if (id(closed_endstop).state) {
+              id(performing_last_movement) = true; //Set flag to indicate we know where the door is
+            }
           }
 
 
