@@ -11,25 +11,14 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: ""
-  services:
-    - service: control_stepper
-      variables:
-        target: int
-      then:
-        - stepper.set_target:
-            id: my_stepper
-            target: !lambda 'return target;'
-        - sensor.template.publish:
-            id: position
-            state: !lambda 'return target;'
+    key: "qc6VZPRv4DcXHvu6FGFmufkXBXbvKucGH0848LmzpFk="
 
 ota:
   password: "341c765c88848721ac11664a7993c0f8"
 
 wifi:
-  ssid: xx
-  password: xx
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
 
   manual_ip:
     static_ip: 192.168.10.7
@@ -43,165 +32,96 @@ wifi:
 captive_portal:
 
 globals:
-  - id: stepper_steps
-    type: int
-    initial_value: '900'
-  - id: stepper_position
-    type: float
-    initial_value: '0'
-  - id: stepper_state
-    type: int
-    initial_value: '0'
-
-
-binary_sensor:
-  - platform: gpio
-    pin: D8
-    name: "Button"
-    filters:
-    on_press:
-      then:
-        - lambda: |
-            if (id(stepper_state) == 0) {
-              //shade is stopped
-              if (((id(stepper_position) < (id(stepper_steps) / 2)) || (id(stepper_position) == id(stepper_steps))) && (id(stepper_position) > 0)) {
-                id(stepper_motor).make_call().set_command_open().perform();
-              } else {
-                id(stepper_motor).make_call().set_command_close().perform();
-              }
-            } else {
-              //shade is moving
-              id(stepper_motor).make_call().set_command_stop().perform();
-            }
-
-
-number:
-  - platform: template
-    name: Stepper Control
-    min_value: -900
-    max_value: 900
-    step: 1
-    set_action:
-      then:
-        - stepper.set_target:
-            id: my_stepper
-            target: !lambda 'return x;'
+  - id: performing_last_movement
+    type: boolean
+    restore_value: no
+    initial_value: 'false'
 
 cover:
   - platform: template
     name: "Vacuum Garage Door"
     id: stepper_motor
+    device_class: garage
     open_action:
-      - globals.set:
-          id: stepper_state
-          value: '1'
+      - stepper.report_position:
+          id: my_stepper
+          position: 0
+      - stepper.set_target:
+          id: my_stepper
+          target: 900
+    close_action:
+      - stepper.report_position:
+          id: my_stepper
+          position: 0
+      - stepper.set_target:
+          id: my_stepper
+          target: -900
+    stop_action:
+      - stepper.report_position:
+          id: my_stepper
+          position: 0
       - stepper.set_target:
           id: my_stepper
           target: 0
-      - sensor.template.publish:
-          id: position
-          state: !lambda return id(my_stepper).target_position;  
-      - delay: !lambda "return (id(my_stepper).current_position / id(stepper_steps)) * 30000;"
-      - globals.set:
-          id: stepper_position
-          value: !lambda "return id(my_stepper).target_position;"
-      - globals.set:
-          id: stepper_state
-          value: '0'
 
-    close_action:
-      - globals.set:
-          id: stepper_state
-          value: '1'
-      - stepper.set_target:
-          id: my_stepper
-          target: !lambda "return id(stepper_steps);"
-      - sensor.template.publish:
-            id: position
-            state: !lambda return id(my_stepper).target_position;
-      - delay: !lambda "return (1 - (id(my_stepper).current_position / id(stepper_steps))) * 30000;"
-      - globals.set:
-          id: stepper_position
-          value: !lambda "return id(my_stepper).target_position;"
-      - globals.set:
-          id: stepper_state
-          value: '0'
 
-    stop_action:
-      - stepper.set_target:
-          id: my_stepper
-          target: !lambda "return id(my_stepper).current_position;" 
-      - sensor.template.publish:
-          id: position
-          state: !lambda return id(my_stepper).current_position;
-      - globals.set:
-          id: stepper_position
-          value: !lambda "return id(my_stepper).current_position;"
-      - globals.set:
-          id: stepper_state
-          value: '0'
-      - cover.template.publish:
-          id: stepper_motor
-          position: !lambda "return 1 - (id(stepper_position) / id(stepper_steps));"
 
-    position_action:
-      - stepper.set_target:
-          id: my_stepper
-          target: !lambda "return id(stepper_steps) * (1 - pos);"
-    optimistic: true
-    assumed_state: true
-    has_position: true
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: D7
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - invert:
+    name: "Garage Door Open"
+    id: open_endstop_binary_sensor
+    on_press:
+        - stepper.report_position:
+            id: my_stepper
+            position: 0
+        - stepper.set_target:
+            id: my_stepper
+            target: 0
 
-#cover:
-  # - platform: template
-    # name: "Vacuum Garage Door"
-    # id: stepper_motor
-    # device_class: garage
-    # open_action:
-      # - stepper.set_target:
-          # id: my_stepper
-          # target: 900
-      # - sensor.template.publish:
-          # id: position
-          # state: !lambda return id(my_stepper).target_position; 
-    # close_action:
-      # - stepper.set_target:
-          # id: my_stepper
-          # target: 0
-      # - sensor.template.publish:
-            # id: position
-            # state: !lambda return id(my_stepper).target_position;
-    # stop_action:
-      # - stepper.set_target:
-          # id: my_stepper
-          # target: !lambda return id(my_stepper).current_position;      
-      # - sensor.template.publish:
-          # id: position
-          # state: !lambda return id(my_stepper).current_position;
+  - platform: gpio
+    pin:
+      number: D6
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - invert:
+    name: "Garage Door Closed"
+    id: close_endstop_binary_sensor
+    on_press:
+        - stepper.report_position:
+            id: my_stepper
+            position: 0
+        - stepper.set_target:
+            id: my_stepper
+            target: 0
 
-    # optimistic: true  
-    # assumed_state: true
+  - platform: gpio  #Working. Connect to main ground.
+    pin:
+      number: D5
+      mode:
+        input: true
+        pullup: true
+    name: "Garage Door Vacuum"
+    device_class: door
+    on_press: #Close door
+        - stepper.set_target:
+            id: my_stepper
+            target: -900
+        - delay: 500ms
+    on_release: #Open Door
+        - stepper.set_target:
+            id: my_stepper
+            target: 900
+        - delay: 500ms
 
-#Add HW Switch for selecting ONGRID or OFFGRID
-#ONGRID: Garage can be manually opened and closed from HA, and will auto-close and auto-open during vacuuming.
-#OFFGRID: Manual mode. Will stay open until vacuum is returned. (Should have LED notification)
-#Option: If no contact with HA, check that the system behaves as offgrid.
-
-#Add second switch to manually open and close.
-#switch:
-#  - platform: gpio
-#    pin: 25
-# #   id: ongrid
-#    name: "HA Controlled Stepper"
-#    icon: "mdi:gate"
-#    on_turn_on:
-#    - delay: 500ms
-#    - switch.turn_off: relay
-
-sensor:
-  - platform: template
-    name: "Door Position"
-    id: position 
 
 stepper:
   - platform: a4988
