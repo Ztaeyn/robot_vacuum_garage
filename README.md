@@ -9,8 +9,7 @@ Hardware based on:
 5 minutes after I finally made my own simple code, which runs the motor a set amount of steps, I found this great inspiration from 
 *https://github.com/NeilDuToit92/ESPHome_Garage/blob/master/ESPHome.yml
 
-
-#TODO
+TODO
 - Add hardware shopping list
 - Improve the schematic.
 - Replace the protoboard with a "proper" PCB.
