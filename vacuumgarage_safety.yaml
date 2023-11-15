@@ -81,7 +81,7 @@ binary_sensor:  #Limit Switch Open Position
     id: garage_switch
     device_class: door
     on_release: #Open door
-      - delay: 5s #Short delay on closing in case of bumpy parking sequence.
+   #  - delay: 5s #Short delay on closing in case of bumpy parking sequence.
       - lambda: !lambda |-
           id(garage_door).current_operation =  esphome::cover::COVER_OPERATION_CLOSING;
           if (!id(closed_endstop).state) {
@@ -240,6 +240,11 @@ cover:
             id(my_stepper).report_position(0);
             id(my_stepper).set_target(0);
           }
+
+
+
+
+ 
 
 
 
